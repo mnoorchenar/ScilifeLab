@@ -46,13 +46,13 @@ if (grepl("^ENSG", mydata[[gene_col_name]][1])) {
 
 # ---- (Optional) Keep only protein-coding genes ----
 # Uncomment if you want to filter down to protein-coding genes
-# mydata <- mydata[rownames(mydata) %in% protein_coding_genes$ensembl_gene_id, ]
+mydata <- mydata[rownames(mydata) %in% protein_coding_genes$ensembl_gene_id, ]
 
 # ---- Move rownames (Gene IDs) into a column for database compatibility ----
 mydata$GeneID <- rownames(mydata)
 mydata <- mydata[, c(ncol(mydata), 1:(ncol(mydata)-1))]  # GeneID to first column
 
-write.table(mydata, file = 'mydata.txt', sep = '\t')
+write.table(mydata, file = './Data/mydata.txt', sep = '\t')
 
 # ---- Save to SQLite ----
 con <- dbConnect(RSQLite::SQLite(), "./Data/BRCA_GeneExpression.db")

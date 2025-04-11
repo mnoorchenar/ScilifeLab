@@ -1,90 +1,77 @@
-# ---- Step 4: Rank Genes Using Unsupervised Learning + Visualizations ----
-# Author: [Your Name]
-# Description: Rank genes from a BRCA network using PCA and Composite Scoring, with visualizations.
+# ---- LS Score Gene Ranking for BRCA Network ----
+# Description: Rank genes using SPNFSR-inspired LS Score and generate visualizations
 
-# Load libraries
-library(stats)
+# 📦 Load Libraries
 library(ggplot2)
 library(pheatmap)
 library(RColorBrewer)
 
-# ---- Load Node Features ----
+# 📂 Load Node Features
 node_features <- read.table("./Data/BRCA_node_features.txt", sep = "\t", header = TRUE, stringsAsFactors = FALSE)
 
-# ---- Prepare Feature Matrix ----
+# 🧮 Prepare Feature Matrix (Topological + Informative)
 features <- node_features[, c("PageRank", "Betweenness", "Closeness", "Entropy")]
 rownames(features) <- node_features$Gene
 
-# ---- Scale Features ----
+# ⚖️ Scale Features
 features_scaled <- scale(features)
 
-# ---- PCA-Based Ranking ----
-pca <- prcomp(features_scaled)
-pca_scores <- abs(pca$x[, 1])
+# ---- 🧠 LS Score Calculation ----
+scale_values <- attr(features_scaled, "scaled:scale")
+feature_variance <- scale_values^2
+feature_weights <- feature_variance / sum(feature_variance)
 
-pca_ranked_genes <- data.frame(
+print(feature_weights)
+
+
+ls_scores <- as.matrix(features_scaled) %*% feature_weights
+
+ls_ranked_genes <- data.frame(
   Gene = rownames(features_scaled),
-  PCA_Score = pca_scores
+  LS_Score = ls_scores
 )
-pca_ranked_genes <- pca_ranked_genes[order(-pca_ranked_genes$PCA_Score), ]
+ls_ranked_genes <- ls_ranked_genes[order(-ls_ranked_genes$LS_Score), ]
 
-# ---- Composite Score Ranking ----
-composite_score <- rowMeans(features_scaled)
 
-composite_ranked_genes <- data.frame(
-  Gene = rownames(features_scaled),
-  Composite_Score = composite_score
-)
-composite_ranked_genes <- composite_ranked_genes[order(-composite_ranked_genes$Composite_Score), ]
+# 💾 Save Ranked List
+write.table(ls_ranked_genes, file = "./Data/BRCA_ranked_genes_LS.txt", sep = "\t", row.names = FALSE, quote = FALSE)
 
-# ---- Save Results ----
-write.table(pca_ranked_genes, file = "./Data/BRCA_ranked_genes_PCA.txt", sep = "\t", row.names = FALSE, quote = FALSE)
-write.table(composite_ranked_genes, file = "./Data/BRCA_ranked_genes_Composite.txt", sep = "\t", row.names = FALSE, quote = FALSE)
+cat("✅ LS Score-based gene ranking completed and saved.\n")
 
-cat("✅ Gene ranking completed and saved.\n")
+# ---- 📈 Visualization ----
 
-# ---- 📊 Visualization Section ----
-
-# 1. Scree Plot (Variance Explained by Each Principal Component)
-scree_data <- data.frame(PC = paste0("PC", 1:length(pca$sdev)),
-                         Variance = (pca$sdev)^2 / sum(pca$sdev^2))
-
-ggplot(scree_data, aes(x = PC, y = Variance)) +
-  geom_bar(stat = "identity", fill = "steelblue") +
-  theme_minimal() +
-  labs(title = "Scree Plot - Variance Explained by PCs", y = "Proportion of Variance", x = "Principal Component")
-
-# 2. PCA Biplot (Top 2 PCs)
-pca_df <- as.data.frame(pca$x)
-pca_df$Gene <- rownames(pca_df)
-
-ggplot(pca_df, aes(x = PC1, y = PC2)) +
-  geom_point(alpha = 0.6) +
-  theme_minimal() +
-  labs(title = "PCA Biplot of Genes", x = "PC1", y = "PC2")
-
-# 3. Top 20 Genes by PCA Score (Barplot)
-top20_pca <- head(pca_ranked_genes, 20)
-ggplot(top20_pca, aes(x = reorder(Gene, PCA_Score), y = PCA_Score)) +
-  geom_bar(stat = "identity", fill = "tomato") +
+# 1. Top 20 Genes by LS Score (Barplot)
+top20_ls <- head(ls_ranked_genes, 20)
+plot_ls <- ggplot(top20_ls, aes(x = reorder(Gene, LS_Score), y = LS_Score)) +
+  geom_bar(stat = "identity", fill = "mediumseagreen") +
   coord_flip() +
   theme_minimal() +
-  labs(title = "Top 20 Genes by PCA Score", x = "Gene", y = "PCA Score")
+  labs(title = "Top 20 Genes by LS Score", x = "Gene", y = "LS Score")
 
-# 4. Top 20 Genes by Composite Score (Barplot)
-top20_composite <- head(composite_ranked_genes, 20)
-ggplot(top20_composite, aes(x = reorder(Gene, Composite_Score), y = Composite_Score)) +
-  geom_bar(stat = "identity", fill = "darkcyan") +
-  coord_flip() +
-  theme_minimal() +
-  labs(title = "Top 20 Genes by Composite Score", x = "Gene", y = "Composite Score")
-
-# 5. Heatmap of Feature Correlation
+# 2. Heatmap of Feature Correlations
 cor_matrix <- cor(features_scaled)
-pheatmap(cor_matrix,
-         main = "Correlation Heatmap of Node-Level Features",
-         color = colorRampPalette(brewer.pal(9, "Blues"))(100),
-         display_numbers = TRUE,
-         fontsize_number = 10)
+plot_heatmap <- pheatmap(
+  cor_matrix,
+  main = "Correlation Heatmap of Node-Level Features",
+  color = colorRampPalette(brewer.pal(9, "Blues"))(100),
+  display_numbers = TRUE,
+  fontsize_number = 10
+)
 
-cat("📈 Visualizations generated successfully.\n")
+# ---- 🖼 Save Visualizations ----
+pdf(file = "./Results/BRCA_LS_score_visualizations.pdf", width = 8, height = 6)
+
+print(plot_ls)
+
+# Note: pheatmap is already plotted on generation
+pheatmap(
+  cor_matrix,
+  main = "Correlation Heatmap of Node-Level Features",
+  color = colorRampPalette(brewer.pal(9, "Blues"))(100),
+  display_numbers = TRUE,
+  fontsize_number = 10
+)
+
+dev.off()
+
+cat("📄 Visualizations saved to './Results/BRCA_LS_score_visualizations.pdf'\n")
