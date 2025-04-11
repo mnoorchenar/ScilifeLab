@@ -52,29 +52,23 @@ BiocManager::install("biomaRt")
 
 <h4>Step 4: Gene Ranking via SPNFSR-Inspired LS Score</h4>
 <ul>
-  <li>Standardizes all node features (Z-scores)</li>
-  <li>Calculates feature importance weights based on variance:</li>
-  <ul>
-    <li>
-      Let \( Z_{ij} \) be the standardized value of gene \( g_i \)'s \( j \)-th feature.
-    </li>
-    <li>
-      Let \( \sigma_j^2 \) be the variance of feature \( j \).
-    </li>
-    <li>
-      Weight for feature \( j \): \( w_j = \frac{\sigma_j^2}{\sum_k \sigma_k^2} \)
-    </li>
-    <li>
-      LS Score for each gene:
-      <br><code>LS(g<sub>i</sub>) = Σ<sub>j</sub> (w<sub>j</sub> × Z<sub>ij</sub>)</code>
-    </li>
-  </ul>
-  <li>Ranks genes by descending LS Score</li>
+  <li>Standardizes all node features using Z-score normalization</li>
+  <li>Calculates feature importance weights based on variance of each feature</li>
+  <li>Assigns LS Score to each gene using a weighted sum of standardized features</li>
+  <li>Formula for LS Score:</li>
+  <br><code>LS(g<sub>i</sub>) = Σ<sub>j</sub> (w<sub>j</sub> × Z<sub>ij</sub>)</code>
+  <li>Genes are ranked in descending order of LS Score</li>
 </ul>
-
 <p><strong>✅ Output:</strong> <code>BRCA_ranked_genes_LS.txt</code></p>
+
+<h3>📊 Visualizations</h3>
+<ol>
+  <li><strong>Top 20 Genes by LS Score:</strong> Horizontal barplot</li>
+  <li><strong>Feature Correlation Heatmap:</strong> Pairwise correlation of all node-level features</li>
+</ol>
 
 <h3>📌 Summary</h3>
 <p>
-  This pipeline identifies <strong>key regulatory genes</strong> in a gene interaction network derived from RNA-Seq breast cancer data. It relies on network topology, mutual information, and unsupervised learning — making it ideal for <em>biomarker discovery</em>, <em>drug target prioritization</em>, and <em>systems biology research</em>.
+  This pipeline identifies <strong>key driver genes</strong> in a gene interaction network derived from RNA-Seq breast cancer data. It uses mutual information to construct the network and applies an SPNFSR-inspired scoring method based on network topology and feature variance. The output is a ranked list of influential genes, ideal for downstream analyses like <em>biomarker discovery</em>, <em>targeted therapies</em>, and <em>systems-level modeling</em>.
 </p>
+
