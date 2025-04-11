@@ -50,28 +50,29 @@ BiocManager::install("biomaRt")
 </ul>
 <p><strong>✅ Output:</strong> <code>BRCA_node_features.txt</code>, stored in SQLite as <code>Gene_Network_Features</code></p>
 
-<h4>Step 4: Gene Ranking via Unsupervised Learning</h4>
+<h4>Step 4: Gene Ranking via SPNFSR-Inspired LS Score</h4>
 <ul>
-  <li>Standardizes all node features</li>
-  <li>Ranks genes by:</li>
+  <li>Standardizes all node features (Z-scores)</li>
+  <li>Calculates feature importance weights based on variance:</li>
   <ul>
-    <li><strong>PCA:</strong> Absolute value of PC1 score</li>
-    <li><strong>Composite Score:</strong> Average of scaled features</li>
+    <li>
+      Let \( Z_{ij} \) be the standardized value of gene \( g_i \)'s \( j \)-th feature.
+    </li>
+    <li>
+      Let \( \sigma_j^2 \) be the variance of feature \( j \).
+    </li>
+    <li>
+      Weight for feature \( j \): \( w_j = \frac{\sigma_j^2}{\sum_k \sigma_k^2} \)
+    </li>
+    <li>
+      LS Score for each gene:
+      <br><code>LS(g<sub>i</sub>) = Σ<sub>j</sub> (w<sub>j</sub> × Z<sub>ij</sub>)</code>
+    </li>
   </ul>
-</ul>
-<p><strong>✅ Outputs:</strong></p>
-<ul>
-  <li><code>BRCA_ranked_genes_PCA.txt</code></li>
-  <li><code>BRCA_ranked_genes_Composite.txt</code></li>
+  <li>Ranks genes by descending LS Score</li>
 </ul>
 
-<h3>📊 Visualizations</h3>
-<ol>
-  <li><strong>Scree Plot:</strong> Variance explained by each PCA component</li>
-  <li><strong>PCA Biplot:</strong> Genes in PC1 vs PC2 space</li>
-  <li><strong>Top 20 Genes:</strong> Barplots for PCA and Composite scores</li>
-  <li><strong>Heatmap:</strong> Feature correlation matrix</li>
-</ol>
+<p><strong>✅ Output:</strong> <code>BRCA_ranked_genes_LS.txt</code></p>
 
 <h3>📌 Summary</h3>
 <p>
