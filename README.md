@@ -59,17 +59,18 @@ BiocManager::install("biomaRt")
 <h4>Step 4: Feature Selection via SPNFSR with Unsupervised Tuning</h4>
 <ul>
   <li>Constructs a similarity matrix using RBF kernel over Euclidean distances</li>
-  <li>Computes graph Laplacian \( L = I - S - S^T + SS^T \)</li>
-  <li>Decomposes \( M = X^T L X \) into positive and negative parts</li>
-  <li>Iteratively learns sparse feature weights \( W \in \mathbb{R}^{n \times 1} \)</li>
-  <li>Projects genes using \( s_i = \| x_i^T W \|^2 \) to rank their importance</li>
-  <li>Performs grid search over parameters:</li>
-  <ul>
-    <li>\( \alpha \in \{0.1, 1, 10\} \)</li>
-    <li>\( \beta \in \{0.01, 0.1, 1\} \)</li>
-    <li>\( k \in \{3, 5, 7\} \)</li>
-    <li>\( \sigma^2 \in \{50, 100, 200\} \)</li>
-  </ul>
+<li>Computes graph Laplacian: <code>L = I - S - Sᵗ + S Sᵗ</code></li>
+<li>Decomposes matrix: <code>M = Xᵗ L X</code> into positive and negative parts</li>
+<li>Iteratively learns sparse feature weights: <code>W ∈ ℝⁿˣ¹</code></li>
+<li>Projects genes using: <code>sᵢ = ‖xᵢᵗ W‖²</code></li>
+<li>Performs grid search over parameters:</li>
+<ul>
+  <li><code>alpha ∈ {0.1, 1, 10}</code></li>
+  <li><code>beta ∈ {0.01, 0.1, 1}</code></li>
+  <li><code>k ∈ {3, 5, 7}</code></li>
+  <li><code>sigma² ∈ {50, 100, 200}</code></li>
+</ul>
+
   <li>Each configuration is evaluated using <strong>silhouette score</strong> from K-means clustering on the projected space</li>
   <li>The best-performing parameter combination is selected for final ranking</li>
 </ul>
