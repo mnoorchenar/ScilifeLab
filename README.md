@@ -81,11 +81,6 @@ BiocManager::install("biomaRt")
   <li>Cross-validation results stored as <code>SPNFSR_CV_Results</code></li>
 </ul>
 
-<h3>📊 Visualizations (Optional)</h3>
-<ol>
-  <li><strong>Top 20 Genes:</strong> Horizontal barplot</li>
-  <li><strong>Correlation Heatmap:</strong> For all node-level features</li>
-</ol>
 
 <h3>📌 Summary</h3>
 <p>
