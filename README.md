@@ -1,10 +1,21 @@
 <h2>🧬 Breast Cancer Gene Network Analysis Pipeline</h2>
-<p>This pipeline analyzes RNA-Seq data for breast cancer to identify influential genes using network science and a sparsity-regularized projection technique. It involves data cleaning, network construction, feature extraction, and feature selection with unsupervised parameter tuning.</p>
+<p>This pipeline analyzes RNA-Seq data for breast cancer to identify influential genes using network science and a sparsity-regularized projection technique. It includes preprocessing, network construction, feature extraction, feature selection, and visualization.</p>
+
+<h3>📂 Project Structure</h3>
+<ul>
+  <li><code>functions.R</code> – Contains all modular functions</li>
+  <li><code>main.R</code> – Executes the full pipeline step-by-step</li>
+  <li><code>Data/</code> – Input and output files (TSV, SQLite)</li>
+  <li><code>SPNFSR_Tuning_Results_*.pdf</code> – Auto-generated visual reports</li>
+</ul>
 
 <h3>📦 Requirements</h3>
 <p>Install these R packages before running the pipeline:</p>
 <pre><code>
-install.packages(c("igraph", "RSQLite", "DBI", "Matrix", "HiClimR", "ggplot2", "pheatmap", "RColorBrewer", "cluster", "factoextra"))
+install.packages(c(
+  "igraph", "RSQLite", "DBI", "Matrix", "HiClimR", "ggplot2",
+  "pheatmap", "RColorBrewer", "cluster", "factoextra", "patchwork", "scales"
+))
 if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
 BiocManager::install("biomaRt")
 </code></pre>
@@ -12,77 +23,87 @@ BiocManager::install("biomaRt")
 <h3>📁 Input Data</h3>
 <ul>
   <li><strong>Gene Expression File:</strong> <code>Data/TCGA-BRCA.star_tpm.tsv</code></li>
-  <li>Format: Rows = Ensembl gene IDs, Columns = Samples</li>
+  <li>Format: Rows = Ensembl Gene IDs, Columns = Sample TPMs</li>
 </ul>
 
-<h3>🔄 Pipeline Steps</h3>
+<h3>🔄 Pipeline Overview</h3>
 
-<h4>Step 1: Data Cleaning and Filtering</h4>
+<h4>Step 1: 🧼 Data Preparation</h4>
 <ul>
-  <li>Connects to Ensembl v104 using <code>biomaRt</code></li>
-  <li>Filters for <strong>protein-coding genes</strong> only</li>
-  <li>Removes version numbers from Ensembl gene IDs</li>
-  <li>Saves the expression matrix to a local SQLite database</li>
-</ul>
-<p><strong>✅ Output:</strong> Saved in <code>BRCA_GeneExpression.db</code> under <code>Gene_Expression</code></p>
-
-<h4>Step 2: Gene Network Construction (Mutual Information)</h4>
-<ul>
-  <li>Computes fast Pearson correlation using <code>HiClimR::fastCor</code></li>
-  <li>Converts correlations to <strong>Mutual Information (MI)</strong> using the formula:</li>
-  <code>MI(i, j) = -0.5 × log(1 - r<sub>ij</sub><sup>2</sup>)</code>
-  <li>Constructs an undirected weighted graph using edges with MI ≥ 0.7</li>
-</ul>
-<p><strong>✅ Outputs:</strong></p>
-<ul>
-  <li><code>BRCA_network_edges.txt</code></li>
-  <li>Stored in SQLite under <code>Gene_Network_Edges</code></li>
+  <li>Filters for protein-coding genes using Ensembl v104</li>
+  <li>Removes Ensembl version suffixes</li>
+  <li>Saves to SQLite: <code>Gene_Expression</code></li>
 </ul>
 
-<h4>Step 3: Node-Level Feature Extraction</h4>
+<h4>Step 2: 🔗 Gene Network Construction</h4>
 <ul>
-  <li>Calculates 9 features for each gene:</li>
+  <li>Computes Pearson correlation (HiClimR)</li>
+  <li>Converts to Mutual Information (MI)</li>
+  <li>Retains edges with MI ≥ threshold (e.g., 0.7)</li>
+  <li>Outputs: <code>Gene_Network_Edges_0.7</code> (SQLite)</li>
+</ul>
+
+<h4>Step 3: 📊 Node Feature Extraction</h4>
+<ul>
+  <li>Extracts 9 features per gene node:</li>
   <ul>
-    <li>PageRank</li>
-    <li>Betweenness Centrality</li>
-    <li>Closeness Centrality</li>
-    <li>Eigenvector Centrality</li>
-    <li>Degree</li>
-    <li>Strength (sum of edge weights)</li>
-    <li>Entropy (of connected edge weights)</li>
-    <li>Expression Mean</li>
-    <li>Expression Standard Deviation</li>
+    <li>PageRank, Betweenness, Closeness, Eigenvector</li>
+    <li>Degree, Strength, Entropy</li>
+    <li>Expression Mean, Expression SD</li>
+  </ul>
+  <li>Outputs: <code>Gene_AllFeatures_0.7</code> (SQLite)</li>
+</ul>
+
+<h4>Step 4: 🚀 SPNFSR with Unsupervised Tuning</h4>
+<ul>
+  <li>Constructs similarity graph (RBF kernel)</li>
+  <li>Applies sparsity-constrained projection</li>
+  <li>Ranks genes based on projection magnitude</li>
+  <li>Grid search over:</li>
+  <ul>
+    <li><code>α ∈ {0.01, 0.1, 0.5, 1, 5, 10, 25}</code></li>
+    <li><code>β ∈ {0.001, 0.01, 0.05, 0.1, 0.5, 1, 2}</code></li>
+    <li><code>k ∈ {3, 5, 7, 9}</code></li>
+    <li><code>σ² ∈ {25, 50, 100, 150, 200, 300, 500}</code></li>
+  </ul>
+  <li>Evaluation metric: <strong>Silhouette score</strong></li>
+  <li>Outputs:</li>
+  <ul>
+    <li><code>BRCA_ranked_genes_SPNFSR_CV_0.7</code> (SQLite)</li>
+    <li><code>SPNFSR_CV_Results_0.7</code> (SQLite)</li>
   </ul>
 </ul>
-<p><strong>✅ Output:</strong> <code>BRCA_node_features.txt</code>, stored in SQLite as <code>Gene_Network_Features</code></p>
 
-<h4>Step 4: Feature Selection via SPNFSR with Unsupervised Tuning</h4>
+<h4>Step 5: 📊 Visualization</h4>
 <ul>
-  <li>Constructs a similarity matrix using RBF kernel over Euclidean distances</li>
-<li>Computes graph Laplacian: <code>L = I - S - Sᵗ + S Sᵗ</code></li>
-<li>Decomposes matrix: <code>M = Xᵗ L X</code> into positive and negative parts</li>
-<li>Iteratively learns sparse feature weights: <code>W ∈ ℝⁿˣ¹</code></li>
-<li>Projects genes using: <code>sᵢ = ‖xᵢᵗ W‖²</code></li>
-<li>Performs grid search over parameters:</li>
-<ul>
-  <li><code>alpha ∈ {0.1, 1, 10}</code></li>
-  <li><code>beta ∈ {0.01, 0.1, 1}</code></li>
-  <li><code>k ∈ {3, 5, 7}</code></li>
-  <li><code>sigma² ∈ {50, 100, 200}</code></li>
+  <li>Generates combined PDF showing:</li>
+  <ul>
+    <li>Top 15 configurations (scaled)</li>
+    <li>Effect of each parameter on silhouette score</li>
+  </ul>
+  <li>Output: <code>SPNFSR_Tuning_Results_0.7.pdf</code></li>
 </ul>
 
-  <li>Each configuration is evaluated using <strong>silhouette score</strong> from K-means clustering on the projected space</li>
-  <li>The best-performing parameter combination is selected for final ranking</li>
-</ul>
-<p><strong>✅ Outputs:</strong></p>
-<ul>
-  <li><code>BRCA_ranked_genes_SPNFSR_CV.txt</code>: Ranked gene list</li>
-  <li>Stored in SQLite as <code>BRCA_ranked_genes_SPNFSR_CV</code></li>
-  <li>Cross-validation results stored as <code>SPNFSR_CV_Results</code></li>
-</ul>
+<h3>▶️ Running the Pipeline</h3>
+<p>After setting your input file, run the pipeline step-by-step from <code>main.R</code>:</p>
+<pre><code class="r">
+source("functions.R")
 
+# Run full analysis for mi_threshold = 0.7
+mi_threshold <- 0.7
+db_path <- "./Data/BRCA_GeneExpression.db"
+
+prepare_expression_data(input_path = "Data/TCGA-BRCA.star_tpm.tsv", db_path = db_path)
+build_gene_network(db_path = db_path, mi_threshold = mi_threshold)
+extract_node_features(db_path = db_path, mi_threshold = mi_threshold)
+run_spnfsr_cv(db_path = db_path, mi_threshold = mi_threshold)
+plot_spnfsr_results(db_path = db_path, mi_threshold = mi_threshold)
+</code></pre>
 
 <h3>📌 Summary</h3>
 <p>
-  This pipeline identifies <strong>key regulatory genes</strong> from RNA-Seq data using a graph-based, sparsity-driven projection method. By combining mutual information, graph topology, and unsupervised model tuning, the method produces a robust and interpretable ranking of genes that are most influential in the breast cancer co-expression network.
+  This pipeline identifies <strong>key regulatory genes</strong> from RNA-Seq data using a graph-based, sparsity-driven projection method. It integrates network topology and expression patterns with robust unsupervised feature ranking.
+</p>
+<p>
+  Designed for reproducibility, scalability, and interpretability, the method supports threshold tuning and modular re-use across datasets.
 </p>
