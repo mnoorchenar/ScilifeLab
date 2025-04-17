@@ -5,7 +5,7 @@ prepare_expression_data <- function(
     table_name = "Gene_Expression",
     keep_protein_coding = TRUE
 ) {
-  # Required Packages 
+  # 📦 Required Packages 
   if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
   if (!requireNamespace("biomaRt", quietly = TRUE)) BiocManager::install("biomaRt")
   if (!requireNamespace("RSQLite", quietly = TRUE)) install.packages("RSQLite")
@@ -15,56 +15,80 @@ prepare_expression_data <- function(
   library(DBI)
   library(RSQLite)
   
-  # Connect to Ensembl 
+  # 🌐 Connect to Ensembl
   ensembl <- useEnsembl(biomart = "genes", dataset = "hsapiens_gene_ensembl", version = 104)
   
-  # Get Protein-Coding Gene List 
-  # c("ensembl_gene_id", "hgnc_symbol", "gene_biotype")
-  protein_coding_genes <- getBM(
-    attributes = c("ensembl_gene_id", "hgnc_symbol"),
-    filters = "biotype",
-    values = "protein_coding",
-    mart = ensembl
-  )
+  # 📥 Get Gene Info (optionally filter to protein-coding)
+  if (keep_protein_coding) {
+    gene_info <- getBM(
+      attributes = c("ensembl_gene_id", "hgnc_symbol"),
+      filters = "biotype",
+      values = "protein_coding",
+      mart = ensembl
+    )
+    message("✅ Retrieved protein-coding gene list from Ensembl.")
+  } else {
+    gene_info <- getBM(
+      attributes = c("ensembl_gene_id", "hgnc_symbol"),
+      mart = ensembl
+    )
+    message("ℹ️ Retrieved all gene types from Ensembl (no filtering).")
+  }
   
-  # Load Expression File 
+  # 🧹 Clean: remove genes without HGNC symbols
+  gene_info <- gene_info[gene_info$hgnc_symbol != "", ]
+  gene_info <- unique(gene_info)
+  
+  # 📄 Load expression data
   mydata <- read.csv(input_path, sep = '\t')
-  
   gene_col_name <- colnames(mydata)[1]
+  
   if (grepl("^ENSG", mydata[[gene_col_name]][1])) {
-    
-    # Remove version numbers from Ensembl IDs
+    # 🧽 Clean Ensembl IDs (remove version numbers)
     mydata[[gene_col_name]] <- sub("\\..*", "", mydata[[gene_col_name]])
-    
-    # Remove duplicates
     mydata <- mydata[!duplicated(mydata[[gene_col_name]]), ]
     
-    # Set rownames
+    # 🔧 Set Ensembl IDs as rownames temporarily
     rownames(mydata) <- mydata[[gene_col_name]]
     mydata[[gene_col_name]] <- NULL
     
-    message("✅ Gene IDs cleaned and duplicates removed.")
+    message("✅ Ensembl gene IDs cleaned and duplicates removed.")
   } else {
-    stop("❌ Gene IDs do not appear to be in the first column.")
+    stop("❌ Gene IDs do not appear to be in the first column or not in ENSG format.")
   }
   
-  # Filter Protein-Coding Only
-  if (keep_protein_coding) {
-    mydata <- mydata[rownames(mydata) %in% protein_coding_genes$ensembl_gene_id, ]
-    message("✅ Filtered to protein-coding genes.")
+  # 🔗 Map Ensembl to HGNC Symbols
+  mydata$ensembl_gene_id <- rownames(mydata)
+  mydata <- merge(mydata, gene_info[, c("ensembl_gene_id", "hgnc_symbol")], by = "ensembl_gene_id")
+  
+  if (!"hgnc_symbol" %in% colnames(mydata)) {
+    stop("❌ Merge failed — HGNC symbol column missing.")
   }
   
-  # Prepare for DB Save 
-  mydata$GeneID <- rownames(mydata)
-  mydata <- mydata[, c(ncol(mydata), 1:(ncol(mydata)-1))]
+  # 🧼 Filter out missing or duplicate symbols
+  mydata <- mydata[mydata$hgnc_symbol != "", ]
+  mydata <- mydata[!duplicated(mydata$hgnc_symbol), ]
   
-  # Save to SQLite 
+  # 📊 Set HGNC symbols as rownames
+  rownames(mydata) <- mydata$hgnc_symbol
+  mydata$ensembl_gene_id <- NULL
+  mydata$hgnc_symbol <- NULL
+  
+  message(paste0("✅ Ensembl IDs replaced with HGNC gene symbols. Final gene count: ", nrow(mydata)))
+  
+  # 💾 Prepare for DB Save
+  mydata$GeneSymbol <- rownames(mydata)
+  mydata <- mydata[, c(ncol(mydata), 1:(ncol(mydata)-1))]  # Move GeneSymbol to first column
+  
+  # 💾 Save to SQLite
   con <- dbConnect(SQLite(), db_path)
   dbWriteTable(con, table_name, mydata, overwrite = TRUE)
   dbDisconnect(con)
   
   cat(paste0("✅ Expression data saved to table '", table_name, "' in ", db_path, "\n"))
 }
+
+
 
 # ---- Function 2: build_gene_network ----
 build_gene_network <- function(
@@ -73,10 +97,9 @@ build_gene_network <- function(
     mi_threshold = 0.8,
     edge_table_prefix = "Gene_Network_Edges"
 ) {
-  # 📦 Install and load required packages
+  # 📦 Required Packages
   packages <- c("igraph", "RSQLite", "DBI", "Matrix", "HiClimR")
-  installed <- rownames(installed.packages())
-  to_install <- setdiff(packages, installed)
+  to_install <- setdiff(packages, rownames(installed.packages()))
   if (length(to_install) > 0) install.packages(to_install)
   lapply(packages, require, character.only = TRUE)
   
@@ -85,42 +108,57 @@ build_gene_network <- function(
   mydata <- dbReadTable(con, table_expr)
   dbDisconnect(con)
   
-  # 🧬 Prepare expression matrix
-  rownames(mydata) <- mydata$GeneID
-  data_mat <- t(as.matrix(mydata[, -1]))  # Genes = columns, Samples = rows
+  # ✅ Safety check for expected column
+  if (!"GeneSymbol" %in% colnames(mydata)) {
+    stop("❌ Expected column 'GeneSymbol' not found in the expression table.")
+  }
+  
+  # 🧬 Set rownames and prepare matrix (samples x genes)
+  rownames(mydata) <- mydata$GeneSymbol
+  data_mat <- t(as.matrix(mydata[, setdiff(names(mydata), "GeneSymbol")]))  # Drop GeneSymbol column
   
   # ⚡ Fast correlation
   cor_mat <- fastCor(data_mat, nSplit = 10, upperTri = FALSE, verbose = TRUE)
   cor_mat[is.na(cor_mat)] <- 0
   cor_mat <- pmin(pmax(cor_mat, -0.9999), 0.9999)
   
-  # 🔁 Convert to mutual information
+  # 🔁 Convert correlation to mutual information
+  gene_names <- colnames(data_mat)
+  rownames(cor_mat) <- gene_names
+  colnames(cor_mat) <- gene_names
+  
   mi_mat <- -0.5 * log(1 - cor_mat^2)
   diag(mi_mat) <- 0
+  rownames(mi_mat) <- gene_names
+  colnames(mi_mat) <- gene_names
   
-  # 🔎 Filter edges by MI threshold
+  # 🔎 Extract gene pairs above MI threshold
   edge_indices <- which(mi_mat >= mi_threshold, arr.ind = TRUE)
-  edge_indices <- edge_indices[edge_indices[, 1] < edge_indices[, 2], ]
+  edge_indices <- edge_indices[edge_indices[, 1] < edge_indices[, 2], , drop = FALSE]
   
+  if (nrow(edge_indices) == 0) {
+    stop(paste0("❌ No gene-gene edges passed the MI threshold (", mi_threshold, "). Try lowering it."))
+  }
+  
+  # 📊 Build edge list
   edges <- data.frame(
     from = rownames(mi_mat)[edge_indices[, 1]],
     to = colnames(mi_mat)[edge_indices[, 2]],
-    weight = mi_mat[edge_indices]
+    weight = mi_mat[cbind(edge_indices[, 1], edge_indices[, 2])]
   )
   
-  # 🧠 Build graph (optional but useful if you want to return it)
+  # 🧠 Create graph
   g <- graph_from_data_frame(edges, directed = FALSE)
   
-  # 💾 Save to database
+  # 💾 Save edge list to SQLite DB
   con <- dbConnect(SQLite(), db_path)
-  dbWriteTable(con, paste0(edge_table_prefix), edges, overwrite = TRUE)
+  dbWriteTable(con, edge_table_prefix, edges, overwrite = TRUE)
   dbDisconnect(con)
   
-  # ✅ Console output
+  # ✅ Output summary
   cat("✅ Network built with", vcount(g), "nodes and", ecount(g), "edges.\n")
-  cat("📁 Edge list saved to table:", paste0(edge_table_prefix), "\n")
+  cat("📁 Edge list saved to table: '", edge_table_prefix, "'\n")
   
-  # Optionally return the graph object
   return(invisible(g))
 }
 
@@ -173,7 +211,7 @@ extract_node_features <- function(
   expr_data <- dbReadTable(con, expression_table)
   dbDisconnect(con)
   
-  rownames(expr_data) <- expr_data$GeneID
+  rownames(expr_data) <- expr_data$GeneSymbol
   expr_mat <- as.matrix(expr_data[, -1])
   genes_in_graph <- names(pr_scores)
   expr_mat <- expr_mat[rownames(expr_mat) %in% genes_in_graph, ]
@@ -205,7 +243,8 @@ extract_node_features <- function(
 
 
 
-# ---- Function 4: run_spnfsr_cv -----
+
+# ---- Function 4: run_spnfsr_cv
 run_spnfsr_cv <- function(
     db_path = "./Data/BRCA_GeneExpression.db",
     features_table_prefix = "Gene_AllFeatures",
@@ -215,8 +254,7 @@ run_spnfsr_cv <- function(
 ) {
   # 📦 Load Libraries
   packages <- c("DBI", "RSQLite", "Matrix", "cluster", "stats", "factoextra")
-  installed <- rownames(installed.packages())
-  to_install <- setdiff(packages, installed)
+  to_install <- setdiff(packages, rownames(installed.packages()))
   if (length(to_install) > 0) install.packages(to_install)
   lapply(packages, require, character.only = TRUE)
   
@@ -239,14 +277,10 @@ run_spnfsr_cv <- function(
   sigma2_list <- c(25, 50, 100, 150, 200, 300, 500)
   
   # 🧰 Helper Functions
-  construct_Q <- function(W) {
-    diag_vec <- 1 / (2 * sqrt(W^2 + 1e-10))
-    diag(as.vector(diag_vec))
-  }
+  construct_Q <- function(W) diag(as.vector(1 / (2 * sqrt(W^2 + 1e-10))))
   construct_R <- function(W, X) {
     temp <- X %*% W
-    diag_vec <- 1 / (2 * sqrt(as.vector(temp)^2 + 1e-10))
-    diag(diag_vec)
+    diag(1 / (2 * sqrt(as.vector(temp)^2 + 1e-10)))
   }
   compute_similarity <- function(X, k_thresh, sigma2) {
     m <- nrow(X)
@@ -262,12 +296,14 @@ run_spnfsr_cv <- function(
     S
   }
   evaluate_silhouette <- function(X_proj, k = 3) {
+    if (any(is.na(X_proj)) || any(is.infinite(X_proj))) return(NA)
+    if (nrow(X_proj) < k || length(unique(rowSums(X_proj))) < k) return(NA)
     km <- tryCatch(kmeans(X_proj, centers = k, nstart = 10), error = function(e) NULL)
     if (!is.null(km)) {
       sil <- silhouette(km$cluster, dist(X_proj))
-      mean(sil[, 3])
+      return(mean(sil[, 3]))
     } else {
-      NA
+      return(NA)
     }
   }
   
@@ -279,6 +315,8 @@ run_spnfsr_cv <- function(
     for (beta in beta_list) {
       for (k_thresh in k_list) {
         for (sigma2 in sigma2_list) {
+          cat("🔧 alpha =", alpha, " beta =", beta, " k =", k_thresh, " sigma2 =", sigma2, "\n")
+          
           X <- X_full
           m <- nrow(X)
           n <- ncol(X)
@@ -322,9 +360,15 @@ run_spnfsr_cv <- function(
     }
   }
   
-  # 🏆 Find Best Configuration
+  # 🎯 Filter valid results
   silhouettes <- sapply(results, function(r) r$silhouette)
-  best_idx <- which.max(silhouettes)
+  valid_idxs <- which(!is.na(silhouettes))
+  
+  if (length(valid_idxs) == 0) {
+    stop("❌ All parameter combinations failed to produce valid silhouette scores.")
+  }
+  
+  best_idx <- valid_idxs[which.max(silhouettes[valid_idxs])]
   best_result <- results[[best_idx]]
   
   # ✅ Final Gene Ranking
@@ -341,7 +385,7 @@ run_spnfsr_cv <- function(
   )
   ranked_genes <- ranked_genes[order(-ranked_genes$SPNFSR_Score), ]
   
-  # 💾 Save Ranked Genes to Database
+  # 💾 Save Ranked Genes
   con <- dbConnect(SQLite(), db_path)
   dbWriteTable(con, paste0(output_table_prefix), ranked_genes, overwrite = TRUE)
   dbDisconnect(con)
@@ -352,7 +396,7 @@ run_spnfsr_cv <- function(
              ", k = ", best_result$k_thresh,
              ", sigma2 = ", best_result$sigma2, "\n"))
   
-  # 📊 Save All Grid Search Results
+  # 💾 Save All Grid Search Results
   cv_results_df <- do.call(rbind, lapply(results, function(res) {
     data.frame(
       alpha = res$alpha,
@@ -371,7 +415,7 @@ run_spnfsr_cv <- function(
 }
 
 
-# ---- Function 4: plot_spnfsr_results -----
+# ---- Function 5: plot_spnfsr_results -----
 plot_spnfsr_results <- function(
     db_path = "./Data/BRCA_GeneExpression.db",
     result_table_prefix = "SPNFSR_CV_Results",
@@ -486,3 +530,115 @@ plot_spnfsr_results <- function(
   
   cat("✅ Plot saved to", output_pdf, "\n")
 }
+
+# ---- Function 6: summarize_top_gene_neighbors ----
+summarize_top_gene_neighbors <- function(
+    db_path = "./Data/BRCA_GeneExpression.db",
+    ranked_table = "BRCA_ranked_genes_SPNFSR_CV",
+    edges_table = "Gene_Network_Edges",
+    expression_table = "Gene_Expression",
+    output_table = "TopGene_Neighbor_Summary",
+    top_n = 10
+) {
+  # 📦 Load Required Packages
+  packages <- c("DBI", "RSQLite", "igraph", "dplyr")
+  installed <- rownames(installed.packages())
+  to_install <- setdiff(packages, installed)
+  if (length(to_install) > 0) install.packages(to_install)
+  lapply(packages, require, character.only = TRUE)
+  
+  # 🔗 Connect to DB and Load Data
+  con <- dbConnect(SQLite(), db_path)
+  top_genes <- dbReadTable(con, ranked_table) %>% head(top_n)
+  edges <- dbReadTable(con, edges_table)
+  expr_data <- dbReadTable(con, expression_table)
+  dbDisconnect(con)
+  
+  # 🧠 Build Network Graph
+  g <- graph_from_data_frame(edges, directed = FALSE)
+  
+  # 🧬 Calculate Mean Expression (TPM)
+  expr_data <- expr_data %>%
+    mutate(ExprMean = rowMeans(across(where(is.numeric)))) %>%
+    select(GeneSymbol, ExprMean)
+  
+  # 🧾 Summarize Neighbors for Top Genes
+  summary_df <- top_genes %>%
+    rename(GeneSymbol = Gene) %>%
+    left_join(expr_data, by = "GeneSymbol") %>%
+    rowwise() %>%
+    mutate(
+      Neighbors = list(neighbors(g, GeneSymbol) %>% names()),
+      NumNeighbors = length(Neighbors),
+      NeighborNames = paste(Neighbors, collapse = ", ")
+    ) %>%
+    ungroup() %>%
+    select(GeneSymbol, SPNFSR_Score, ExprMean, NumNeighbors, NeighborNames)
+  
+  # 💾 Save Result to SQLite DB
+  con <- dbConnect(SQLite(), db_path)
+  dbWriteTable(con, output_table, summary_df, overwrite = TRUE)
+  dbDisconnect(con)
+  
+  cat("✅ Neighbor summary saved to table:", output_table, "\n")
+  
+  return(invisible(summary_df))
+}
+
+# ---- Function 7: check_network_connectivity ----
+check_network_connectivity <- function(
+    mi_threshold,
+    db_path = NULL,
+    edge_table_prefix = "Gene_Network_Edges"
+) {
+  # 📦 Load required packages
+  packages <- c("igraph", "DBI", "RSQLite")
+  to_install <- setdiff(packages, rownames(installed.packages()))
+  if (length(to_install) > 0) install.packages(to_install)
+  lapply(packages, require, character.only = TRUE)
+  
+  # 🗂️ Set DB path if not provided
+  if (is.null(db_path)) {
+    db_path <- paste0("./Data/BRCA_GeneExpression_", mi_threshold, ".db")
+  }
+  
+  # 🧬 Load edge list
+  con <- dbConnect(SQLite(), db_path)
+  table_name <- paste0(edge_table_prefix)  # e.g., "Gene_Network_Edges"
+  edges <- dbReadTable(con, table_name)
+  dbDisconnect(con)
+  
+  if (nrow(edges) == 0) {
+    stop("❌ Edge list is empty — cannot assess connectivity.")
+  }
+  
+  # 🔗 Build graph
+  g <- graph_from_data_frame(edges, directed = FALSE)
+  
+  # 🧩 Check connected components
+  comps <- components(g)
+  num_components <- comps$no
+  largest_size <- max(comps$csize)
+  percent_giant <- round(100 * largest_size / vcount(g), 2)
+  
+  # 🖨️ Output summary
+  cat("📊 Network Connectivity Summary (MI Threshold =", mi_threshold, ")\n")
+  cat(" - Total nodes:              ", vcount(g), "\n")
+  cat(" - Total edges:              ", ecount(g), "\n")
+  cat(" - Number of components:     ", num_components, "\n")
+  cat(" - Size of largest component:", largest_size, "\n")
+  cat(" - % of nodes in largest:    ", percent_giant, "%\n")
+  
+  # Return for further use if needed
+  return(invisible(list(
+    graph = g,
+    components = comps,
+    threshold = mi_threshold,
+    total_nodes = vcount(g),
+    total_edges = ecount(g),
+    num_components = num_components,
+    largest_component_size = largest_size,
+    percent_in_giant = percent_giant
+  )))
+}
+

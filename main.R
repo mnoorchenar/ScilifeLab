@@ -2,7 +2,7 @@
 source("functions.R")
 
 # Set shared parameters
-mi_threshold <- 0.8
+mi_threshold <- 0.7
 db_path <- paste0("./Data/BRCA_GeneExpression_",mi_threshold,".db")
 
 # 1️⃣ Prepare expression data and save to SQLite----
@@ -57,3 +57,25 @@ plot_spnfsr_results(
   )
 )
 
+# 6️⃣ summarize_top_gene_neighbors ----
+summarize_top_gene_neighbors(
+  db_path = db_path,
+  ranked_table = "BRCA_ranked_genes_SPNFSR_CV",
+  edges_table = "Gene_Network_Edges",
+  expression_table = "Gene_Expression",
+  output_table = "TopGene_Neighbor_Summary",
+  top_n = 10
+)
+
+# 7️⃣ check_network_connectivity ----
+check_network_connectivity(
+  mi_threshold = 0.7,
+  db_path = db_path,
+  edge_table_prefix = "Gene_Network_Edges"
+)
+
+check_network_connectivity(
+  mi_threshold = 0.8,
+  db_path = db_path,
+  edge_table_prefix = "Gene_Network_Edges"
+)
